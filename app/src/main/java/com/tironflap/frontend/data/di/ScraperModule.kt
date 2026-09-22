@@ -1,7 +1,7 @@
 package com.tironflap.frontend.data.di
 
 import com.tironflap.frontend.data.scraper.GameScraper
-import com.tironflap.frontend.data.scraper.LocalGameScraper
+import com.tironflap.frontend.data.scraper.LibretroThumbnailScraper
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -14,5 +14,5 @@ abstract class ScraperModule {
 
     @Binds
     @Singleton
-    abstract fun bindGameScraper(impl: LocalGameScraper): GameScraper
+    abstract fun bindGameScraper(impl: LibretroThumbnailScraper): GameScraper
 }

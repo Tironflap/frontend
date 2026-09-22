@@ -20,7 +20,6 @@ class EmulatorLauncher @Inject constructor(
     data class EmulatorTarget(
         val packageName: String,
         val label: String,
-        /** Fully-qualified activity class, if known */
         val activity: String? = null
     )
 
@@ -31,12 +30,9 @@ class EmulatorLauncher @Inject constructor(
             EmulatorTarget("com.retroarch", "RetroArch")
         ),
         "snes" to listOf(
-            EmulatorTarget(
-                "com.explusalpha.Snes9xPlus",
-                "Snes9x EX+",
-                "com.explusalpha.Snes9xPlus.Snes9xActivity"
-            ),
             EmulatorTarget("com.explusalpha.Snes9xPlus", "Snes9x EX+"),
+            EmulatorTarget("com.explusalpha.Snes9xPlus", "Snes9x EX+", "com.explusalpha.Snes9xPlus.Snes9xActivity"),
+            EmulatorTarget("com.explusalpha.Snes9xPlus", "Snes9x EX+", "com.explusalpha.common.EmulatorActivity"),
             EmulatorTarget("com.retroarch.aarch64", "RetroArch"),
             EmulatorTarget("com.retroarch", "RetroArch")
         ),
@@ -98,16 +94,8 @@ class EmulatorLauncher @Inject constructor(
             EmulatorTarget("xyz.nethersx2.android", "NetherSX2")
         ),
         "psp" to listOf(
-            EmulatorTarget(
-                "org.ppsspp.ppsspp",
-                "PPSSPP",
-                "org.ppsspp.ppsspp.PpssppActivity"
-            ),
-            EmulatorTarget(
-                "org.ppsspp.ppssppgold",
-                "PPSSPP Gold",
-                "org.ppsspp.ppsspp.PpssppActivity"
-            ),
+            EmulatorTarget("org.ppsspp.ppsspp", "PPSSPP", "org.ppsspp.ppsspp.PpssppActivity"),
+            EmulatorTarget("org.ppsspp.ppssppgold", "PPSSPP Gold", "org.ppsspp.ppsspp.PpssppActivity"),
             EmulatorTarget("org.ppsspp.ppsspp", "PPSSPP"),
             EmulatorTarget("org.ppsspp.ppssppgold", "PPSSPP Gold")
         ),
@@ -128,8 +116,13 @@ class EmulatorLauncher @Inject constructor(
 
     fun findInstalledEmulators(systemId: String): List<EmulatorTarget> {
         val pm = context.packageManager
+        // Dedupe by package while keeping order
+        val seen = mutableSetOf<String>()
         return emulatorsBySystem[systemId].orEmpty().filter { target ->
-            isPackageInstalled(pm, target.packageName)
+            if (target.packageName in seen) return@filter false
+            val ok = isPackageInstalled(pm, target.packageName)
+            if (ok) seen += target.packageName
+            ok
         }
     }
 
@@ -142,16 +135,21 @@ class EmulatorLauncher @Inject constructor(
         }
     }
 
-    /**
-     * Direct launch into a known emulator. Only opens the system chooser
-     * if no supported emulator is installed for this system.
-     */
     fun launch(game: Game): Boolean {
         val uri = Uri.parse(game.path)
         val installed = findInstalledEmulators(game.systemId)
 
         if (installed.isNotEmpty()) {
             for (target in installed) {
+                // Try every known activity variant for this package
+                val variants = emulatorsBySystem[game.systemId].orEmpty()
+                    .filter { it.packageName == target.packageName }
+                for (variant in variants) {
+                    if (tryDirectLaunch(uri, variant)) {
+                        Toast.makeText(context, "Opening in ${target.label}", Toast.LENGTH_SHORT).show()
+                        return true
+                    }
+                }
                 if (tryDirectLaunch(uri, target)) {
                     Toast.makeText(context, "Opening in ${target.label}", Toast.LENGTH_SHORT).show()
                     return true
@@ -159,45 +157,39 @@ class EmulatorLauncher @Inject constructor(
             }
             Toast.makeText(
                 context,
-                "Found ${installed.first().label} but could not open the file. Check storage permission in that app.",
+                "Found ${installed.first().label} but could not open the ROM. Grant storage access inside that emulator once.",
                 Toast.LENGTH_LONG
             ).show()
             return false
         }
 
-        // No known emulator for this system → inform user (no random app chooser)
         val hint = when (game.systemId) {
             "psp" -> "Install PPSSPP"
             "snes" -> "Install Snes9x EX+"
             "psx" -> "Install DuckStation"
-            "ps2" -> "Install AetherSX2 or NetherSX2"
+            "ps2" -> "Install AetherSX2"
             "gc", "wii" -> "Install Dolphin"
             "nds" -> "Install DraStic"
             "gba" -> "Install My Boy!"
+            "nes" -> "Install a NES emulator or RetroArch"
             else -> "Install an emulator for ${game.systemId.uppercase()}"
         }
         Toast.makeText(
             context,
-            "No emulator found for ${game.systemId.uppercase()}. $hint",
+            "No emulator for ${game.systemId.uppercase()}. $hint",
             Toast.LENGTH_LONG
         ).show()
         return false
     }
 
     private fun tryDirectLaunch(uri: Uri, target: EmulatorTarget): Boolean {
-        // 1) Explicit activity if we know it
         if (target.activity != null) {
             if (startExplicit(uri, target.packageName, target.activity)) return true
         }
-
-        // 2) ACTION_VIEW with package + common MIME types
         if (startView(uri, target.packageName, "application/octet-stream")) return true
         if (startView(uri, target.packageName, "*/*")) return true
         if (startView(uri, target.packageName, null)) return true
-
-        // 3) Launch main activity then pass data
         if (startViaLaunchIntent(uri, target.packageName)) return true
-
         return false
     }
 
@@ -240,7 +232,7 @@ class EmulatorLauncher @Inject constructor(
         return try {
             val launch = context.packageManager.getLaunchIntentForPackage(packageName) ?: return false
             launch.action = Intent.ACTION_VIEW
-            launch.data = uri
+            launch.setDataAndType(uri, "*/*")
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             launch.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             grantUri(packageName, uri)

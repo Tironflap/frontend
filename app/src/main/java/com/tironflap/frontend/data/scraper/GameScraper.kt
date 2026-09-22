@@ -2,15 +2,9 @@ package com.tironflap.frontend.data.scraper
 
 /**
  * General scraper interface.
- * Implementations can be local (name parsing), ScreenScraper, libretro, etc.
+ * Implementations can be local, libretro-thumbnails, ScreenScraper, etc.
  */
 interface GameScraper {
-    /**
-     * Try to find metadata for a game.
-     * @param name cleaned ROM name
-     * @param systemId internal system id (nes, snes, ...)
-     * @return metadata or null if nothing found
-     */
     suspend fun scrape(name: String, systemId: String): ScrapedMetadata?
 }
 
