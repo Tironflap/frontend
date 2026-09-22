@@ -35,6 +35,12 @@ class LibraryRepository @Inject constructor(
     val directories: Flow<List<RomDirectory>> = romDirectoryDao.getAll()
     val systems: Flow<List<SystemDef>> = systemDao.getEnabledSystems()
 
+    private data class Candidate(
+        val file: DocumentFile,
+        val systemId: String,
+        val parentName: String?
+    )
+
     suspend fun ensureDefaultSystems() {
         val existing = systemDao.getById("nes")
         if (existing == null) {
@@ -74,7 +80,7 @@ class LibraryRepository @Inject constructor(
      * 1. Collect files
      * 2. Drop junk (EBOOT, DATA.BIN, serial-only names, tiny bins…)
      * 3. Resolve system (extension + folder heuristics)
-     * 4. Prefer cue over bin, iso over weak types
+     * 4. Prefer cue over bin, better formats first
      * 5. Hash with CRC32 and look up public-style hash DB
      * 6. Scrape remaining metadata
      */
@@ -87,13 +93,6 @@ class LibraryRepository @Inject constructor(
             var skippedJunk = 0
             var scraped = 0
             var verified = 0
-
-            // Collect candidates first so we can prefer cue over bin etc.
-            data class Candidate(
-                val file: DocumentFile,
-                val systemId: String,
-                val parentName: String?
-            )
 
             val candidates = mutableListOf<Candidate>()
 
@@ -117,8 +116,7 @@ class LibraryRepository @Inject constructor(
                     if (ext.isEmpty()) continue
 
                     val parentName = file.parentFile?.name
-                    var systemId = dir.systemId
-                        ?: extToSystem[ext]
+                    var systemId = dir.systemId ?: extToSystem[ext]
 
                     if (systemId == null || systemId.startsWith("unknown_")) {
                         systemId = DefaultSystems.resolveAmbiguous(ext, name, parentName)
@@ -129,7 +127,6 @@ class LibraryRepository @Inject constructor(
                 }
             }
 
-            // Prefer better file types: if we have both .cue and .bin with similar names, keep cue
             val filtered = preferBestFiles(candidates)
 
             for (c in filtered) {
@@ -142,14 +139,12 @@ class LibraryRepository @Inject constructor(
                 onProgress("Hashing: $name")
                 val crc = hasher.crc32(file.uri)
 
-                // Hash DB lookup (public No-Intro style)
                 val hashHit = hashDb.lookup(crc)
                 val isVerified = hashHit != null
 
                 val systemId = hashHit?.systemId ?: c.systemId
                 val displayName = hashHit?.name ?: cleanRomName(name)
 
-                // Still drop if name is useless after cleaning
                 if (displayName.isBlank() || displayName.length < 2) {
                     skippedJunk++
                     continue
@@ -162,7 +157,7 @@ class LibraryRepository @Inject constructor(
                 onProgress("Scraping: $displayName")
                 val meta = scraper.scrape(displayName, systemId)
 
-                var game = Game(
+                val game = Game(
                     name = meta?.name?.ifBlank { displayName } ?: displayName,
                     path = path,
                     systemId = systemId,
@@ -198,31 +193,18 @@ class LibraryRepository @Inject constructor(
             )
         }
 
-    /**
-     * When both a .cue and .bin exist for the same base name, keep the higher-preference one.
-     */
-    private fun preferBestFiles(
-        candidates: List<LibraryRepository.Candidate>
-    ): List<LibraryRepository.Candidate> {
-        // Group by system + cleaned base name
+    private fun preferBestFiles(candidates: List<Candidate>): List<Candidate> {
         val groups = candidates.groupBy { c ->
             val base = cleanRomName(c.file.name ?: "")
             "${c.systemId}|$base"
         }
 
-        return groups.values.map { group ->
+        return groups.values.mapNotNull { group ->
             group.maxByOrNull { c ->
                 JunkFilter.preferenceScore(c.file.name ?: "", c.systemId)
-            }!!
+            }
         }
     }
-
-    // Helper visibility for preferBestFiles
-    private data class Candidate(
-        val file: DocumentFile,
-        val systemId: String,
-        val parentName: String?
-    )
 
     private fun collectRomFiles(
         dir: DocumentFile,
