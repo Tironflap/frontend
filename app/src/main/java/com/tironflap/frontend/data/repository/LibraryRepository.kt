@@ -7,6 +7,9 @@ import com.tironflap.frontend.data.DefaultSystems
 import com.tironflap.frontend.data.db.GameDao
 import com.tironflap.frontend.data.db.RomDirectoryDao
 import com.tironflap.frontend.data.db.SystemDao
+import com.tironflap.frontend.data.hash.HashDatabase
+import com.tironflap.frontend.data.hash.JunkFilter
+import com.tironflap.frontend.data.hash.RomHasher
 import com.tironflap.frontend.data.model.Game
 import com.tironflap.frontend.data.model.RomDirectory
 import com.tironflap.frontend.data.model.SystemDef
@@ -24,7 +27,9 @@ class LibraryRepository @Inject constructor(
     private val gameDao: GameDao,
     private val systemDao: SystemDao,
     private val romDirectoryDao: RomDirectoryDao,
-    private val scraper: GameScraper
+    private val scraper: GameScraper,
+    private val hasher: RomHasher,
+    private val hashDb: HashDatabase
 ) {
     val games: Flow<List<Game>> = gameDao.getAllGames()
     val directories: Flow<List<RomDirectory>> = romDirectoryDao.getAll()
@@ -38,14 +43,12 @@ class LibraryRepository @Inject constructor(
     }
 
     suspend fun addDirectory(uri: Uri, displayName: String, systemId: String? = null) {
-        // Persist permission
         try {
             context.contentResolver.takePersistableUriPermission(
                 uri,
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
         } catch (_: SecurityException) {
-            // May already have it or not persistable
         }
 
         romDirectoryDao.insert(
@@ -62,9 +65,18 @@ class LibraryRepository @Inject constructor(
         romDirectoryDao.delete(directory)
     }
 
+    suspend fun clearLibrary() {
+        gameDao.deleteAll()
+    }
+
     /**
-     * Scans all configured ROM directories, detects games by extension,
-     * inserts new ones, and runs the general scraper on them.
+     * Full scan:
+     * 1. Collect files
+     * 2. Drop junk (EBOOT, DATA.BIN, serial-only names, tiny bins…)
+     * 3. Resolve system (extension + folder heuristics)
+     * 4. Prefer cue over bin, iso over weak types
+     * 5. Hash with CRC32 and look up public-style hash DB
+     * 6. Scrape remaining metadata
      */
     suspend fun scanAndScrape(onProgress: (String) -> Unit = {}): ScanResult =
         withContext(Dispatchers.IO) {
@@ -72,71 +84,145 @@ class LibraryRepository @Inject constructor(
             val extToSystem = DefaultSystems.extensionToSystem()
             val dirs = romDirectoryDao.getAllOnce()
             var added = 0
-            var updated = 0
+            var skippedJunk = 0
             var scraped = 0
+            var verified = 0
+
+            // Collect candidates first so we can prefer cue over bin etc.
+            data class Candidate(
+                val file: DocumentFile,
+                val systemId: String,
+                val parentName: String?
+            )
+
+            val candidates = mutableListOf<Candidate>()
 
             for (dir in dirs) {
                 onProgress("Scanning ${dir.displayName}...")
-                val root = DocumentFile.fromTreeUri(context, Uri.parse(dir.uri))
-                    ?: continue
-
+                val root = DocumentFile.fromTreeUri(context, Uri.parse(dir.uri)) ?: continue
                 val files = mutableListOf<DocumentFile>()
                 collectRomFiles(root, dir.recursive, files)
 
                 for (file in files) {
                     if (!file.isFile) continue
                     val name = file.name ?: continue
+                    val size = file.length()
+
+                    if (JunkFilter.isJunk(name, size)) {
+                        skippedJunk++
+                        continue
+                    }
+
                     val ext = name.substringAfterLast('.', "").lowercase()
                     if (ext.isEmpty()) continue
 
-                    val systemId = dir.systemId
+                    val parentName = file.parentFile?.name
+                    var systemId = dir.systemId
                         ?: extToSystem[ext]
-                        ?: continue   // unknown extension → skip
 
-                    val path = file.uri.toString()
-                    val existing = gameDao.getGameByPath(path)
-
-                    if (existing == null) {
-                        val cleanName = cleanRomName(name)
-                        var game = Game(
-                            name = cleanName,
-                            path = path,
-                            systemId = systemId,
-                            fileName = name,
-                            fileSize = file.length()
-                        )
-
-                        // Run general scraper
-                        onProgress("Scraping: $cleanName")
-                        val meta = scraper.scrape(cleanName, systemId)
-                        if (meta != null) {
-                            game = game.copy(
-                                scrapedName = meta.name,
-                                name = meta.name.ifBlank { cleanName },
-                                description = meta.description,
-                                releaseDate = meta.releaseDate,
-                                developer = meta.developer,
-                                publisher = meta.publisher,
-                                genre = meta.genre,
-                                coverUrl = meta.coverUrl,
-                                screenshotUrl = meta.screenshotUrl,
-                                rating = meta.rating
-                            )
-                            scraped++
-                        }
-
-                        gameDao.insert(game)
-                        added++
-                    } else {
-                        // Optionally re-scrape missing metadata later
-                        updated++
+                    if (systemId == null || systemId.startsWith("unknown_")) {
+                        systemId = DefaultSystems.resolveAmbiguous(ext, name, parentName)
                     }
+                    if (systemId == null || systemId.startsWith("unknown_")) continue
+
+                    candidates.add(Candidate(file, systemId, parentName))
                 }
             }
 
-            onProgress("Done")
-            ScanResult(added = added, existing = updated, scraped = scraped)
+            // Prefer better file types: if we have both .cue and .bin with similar names, keep cue
+            val filtered = preferBestFiles(candidates)
+
+            for (c in filtered) {
+                val file = c.file
+                val name = file.name ?: continue
+                val path = file.uri.toString()
+
+                if (gameDao.getGameByPath(path) != null) continue
+
+                onProgress("Hashing: $name")
+                val crc = hasher.crc32(file.uri)
+
+                // Hash DB lookup (public No-Intro style)
+                val hashHit = hashDb.lookup(crc)
+                val isVerified = hashHit != null
+
+                val systemId = hashHit?.systemId ?: c.systemId
+                val displayName = hashHit?.name ?: cleanRomName(name)
+
+                // Still drop if name is useless after cleaning
+                if (displayName.isBlank() || displayName.length < 2) {
+                    skippedJunk++
+                    continue
+                }
+                if (JunkFilter.isJunk("$displayName.bin")) {
+                    skippedJunk++
+                    continue
+                }
+
+                onProgress("Scraping: $displayName")
+                val meta = scraper.scrape(displayName, systemId)
+
+                var game = Game(
+                    name = meta?.name?.ifBlank { displayName } ?: displayName,
+                    path = path,
+                    systemId = systemId,
+                    fileName = name,
+                    fileSize = file.length(),
+                    crc32 = crc,
+                    scrapedName = meta?.name,
+                    description = meta?.description,
+                    releaseDate = meta?.releaseDate,
+                    developer = meta?.developer,
+                    publisher = meta?.publisher,
+                    genre = meta?.genre,
+                    coverUrl = meta?.coverUrl,
+                    screenshotUrl = meta?.screenshotUrl,
+                    rating = meta?.rating,
+                    isVerified = isVerified
+                )
+
+                if (isVerified) verified++
+                if (meta != null) scraped++
+
+                gameDao.insert(game)
+                added++
+            }
+
+            onProgress("Done – $added added, $skippedJunk junk skipped, $verified verified by hash")
+            ScanResult(
+                added = added,
+                existing = 0,
+                scraped = scraped,
+                skippedJunk = skippedJunk,
+                verified = verified
+            )
         }
+
+    /**
+     * When both a .cue and .bin exist for the same base name, keep the higher-preference one.
+     */
+    private fun preferBestFiles(
+        candidates: List<LibraryRepository.Candidate>
+    ): List<LibraryRepository.Candidate> {
+        // Group by system + cleaned base name
+        val groups = candidates.groupBy { c ->
+            val base = cleanRomName(c.file.name ?: "")
+            "${c.systemId}|$base"
+        }
+
+        return groups.values.map { group ->
+            group.maxByOrNull { c ->
+                JunkFilter.preferenceScore(c.file.name ?: "", c.systemId)
+            }!!
+        }
+    }
+
+    // Helper visibility for preferBestFiles
+    private data class Candidate(
+        val file: DocumentFile,
+        val systemId: String,
+        val parentName: String?
+    )
 
     private fun collectRomFiles(
         dir: DocumentFile,
@@ -152,10 +238,8 @@ class LibraryRepository @Inject constructor(
         }
     }
 
-    /** Strip common dump tags and extension from filename */
     private fun cleanRomName(fileName: String): String {
         var name = fileName.substringBeforeLast('.')
-        // Remove common tags: (USA), [!], (Rev 1), etc.
         name = name.replace(Regex("""\\s*[\\(\\[][^\\)\\]]*[\\)\\]]"""), "")
         name = name.replace(Regex("""[_\\.]+"""), " ")
         return name.trim()
@@ -164,6 +248,8 @@ class LibraryRepository @Inject constructor(
     data class ScanResult(
         val added: Int,
         val existing: Int,
-        val scraped: Int
+        val scraped: Int,
+        val skippedJunk: Int = 0,
+        val verified: Int = 0
     )
 }

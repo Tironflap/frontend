@@ -57,7 +57,6 @@ fun SettingsScreen(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
         if (uri != null) {
-            // Take persistable permission
             val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
             try {
                 context.contentResolver.takePersistableUriPermission(uri, flags)
@@ -91,13 +90,10 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                Text(
-                    text = "ROM Directories",
-                    style = MaterialTheme.typography.titleLarge
-                )
+                Text("ROM Directories", style = MaterialTheme.typography.titleLarge)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Add folders that contain your games. The scanner will detect systems by file extension and run the general scraper.",
+                    text = "Add folders with your games. Scan filters junk (EBOOT, DATA.BIN, serial dumps) and identifies games by CRC32 hash when possible.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
@@ -138,12 +134,9 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
+                                Text(dir.displayName, style = MaterialTheme.typography.titleMedium)
                                 Text(
-                                    text = dir.displayName,
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                Text(
-                                    text = if (dir.systemId != null) "System: ${dir.systemId}" else "Auto-detect system",
+                                    text = if (dir.systemId != null) "System: ${dir.systemId}" else "Auto-detect",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
@@ -162,10 +155,7 @@ fun SettingsScreen(
 
             item {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Library",
-                    style = MaterialTheme.typography.titleLarge
-                )
+                Text("Library", style = MaterialTheme.typography.titleLarge)
             }
 
             item {
@@ -176,9 +166,7 @@ fun SettingsScreen(
                 ) {
                     if (isScanning) {
                         CircularProgressIndicator(
-                            modifier = Modifier
-                                .height(20.dp)
-                                .width(20.dp),
+                            modifier = Modifier.height(20.dp).width(20.dp),
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -186,7 +174,7 @@ fun SettingsScreen(
                     } else {
                         Icon(Icons.Default.Refresh, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Scan & Scrape Library")
+                        Text("Rescan (clear + hash + filter junk)")
                     }
                 }
             }
@@ -203,13 +191,26 @@ fun SettingsScreen(
 
             item {
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "Scraper",
-                    style = MaterialTheme.typography.titleLarge
-                )
+                Text("How identification works", style = MaterialTheme.typography.titleLarge)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Currently using the built-in general scraper (name cleaning + light metadata). ScreenScraper / online providers can be added later.",
+                    text = "1. Junk files are dropped (EBOOT.PBP, DATA.BIN, pure hex names, tiny bins, tracks)\n" +
+                        "2. Each ROM is hashed with CRC32 (No-Intro / Redump style)\n" +
+                        "3. Hash is looked up in the public hash database when available\n" +
+                        "4. .cue is preferred over raw .bin for the same game\n" +
+                        "5. Tap a game in Library to launch the matching emulator",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Launching", style = MaterialTheme.typography.titleLarge)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Install emulators (DuckStation, PPSSPP, Dolphin, RetroArch, DraStic…). " +
+                        "Tap a game in the library to open it with the best installed emulator for that system.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )

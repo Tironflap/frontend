@@ -52,11 +52,13 @@ class SettingsViewModel @Inject constructor(
             _isScanning.value = true
             _scanStatus.value = "Starting scan..."
             try {
+                // Clear old junk so re-scan applies new filters
+                libraryRepository.clearLibrary()
                 val result = libraryRepository.scanAndScrape { msg ->
                     _scanStatus.value = msg
                 }
                 _scanStatus.value =
-                    "Finished: ${result.added} new, ${result.scraped} scraped, ${result.existing} existing"
+                    "Done: ${result.added} games, ${result.skippedJunk} junk removed, ${result.verified} hash-verified"
             } catch (e: Exception) {
                 _scanStatus.value = "Error: ${e.message}"
             } finally {

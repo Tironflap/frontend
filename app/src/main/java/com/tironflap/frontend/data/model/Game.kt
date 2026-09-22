@@ -7,10 +7,12 @@ import androidx.room.PrimaryKey
 data class Game(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
-    val path: String,                    // content URI or file path
-    val systemId: String,                // e.g. "nes", "snes", "ps1"
+    val path: String,
+    val systemId: String,
     val fileName: String,
     val fileSize: Long = 0,
+    val crc32: String? = null,           // uppercase hex CRC32
+    val md5: String? = null,
     val scrapedName: String? = null,
     val description: String? = null,
     val releaseDate: String? = null,
@@ -20,6 +22,7 @@ data class Game(
     val coverUrl: String? = null,
     val screenshotUrl: String? = null,
     val rating: Float? = null,
+    val isVerified: Boolean = false,     // matched against known hash DB
     val isFavorite: Boolean = false,
     val lastPlayed: Long? = null,
     val playCount: Int = 0,

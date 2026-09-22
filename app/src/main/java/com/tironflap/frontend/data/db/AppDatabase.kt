@@ -8,7 +8,7 @@ import com.tironflap.frontend.data.model.SystemDef
 
 @Database(
     entities = [Game::class, SystemDef::class, RomDirectory::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

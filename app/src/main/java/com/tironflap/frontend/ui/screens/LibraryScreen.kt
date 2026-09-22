@@ -1,18 +1,23 @@
 package com.tironflap.frontend.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -64,7 +69,7 @@ fun LibraryScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Go to Settings → Add Directory → Scan & Scrape",
+                        text = "Settings → Add Directory → Scan & Scrape\nJunk files are filtered automatically.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
@@ -79,7 +84,10 @@ fun LibraryScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(games, key = { it.id }) { game ->
-                    GameCard(game)
+                    GameCard(
+                        game = game,
+                        onClick = { viewModel.launchGame(game) }
+                    )
                 }
             }
         }
@@ -87,25 +95,61 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun GameCard(game: Game) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = game.name,
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                text = "${game.systemId.uppercase()}  •  ${game.fileName}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-            )
-            if (!game.genre.isNullOrBlank()) {
+private fun GameCard(
+    game: Game,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = game.name,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    if (game.isVerified) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            Icons.Default.Verified,
+                            contentDescription = "Verified by hash",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.height(16.dp)
+                        )
+                    }
+                }
                 Text(
-                    text = game.genre,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    text = buildString {
+                        append(game.systemId.uppercase())
+                        append("  •  ")
+                        append(game.fileName)
+                        if (game.crc32 != null) {
+                            append("  •  CRC ")
+                            append(game.crc32)
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
+                if (!game.genre.isNullOrBlank()) {
+                    Text(
+                        text = game.genre,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
+            Icon(
+                Icons.Default.PlayArrow,
+                contentDescription = "Launch",
+                tint = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }

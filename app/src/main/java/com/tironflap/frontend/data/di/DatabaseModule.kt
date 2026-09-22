@@ -24,7 +24,9 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "frontend.db"
-        ).build()
+        )
+            .fallbackToDestructiveMigration() // early alpha – wipe on schema change
+            .build()
     }
 
     @Provides
