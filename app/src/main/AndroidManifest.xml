@@ -8,6 +8,54 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 
+    <!--
+      Android 11+ package visibility: without this, getPackageInfo() fails for
+      other apps and we always fall back to the system chooser.
+    -->
+    <queries>
+        <!-- Intent that any file-handler might support -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/octet-stream" />
+        </intent>
+
+        <!-- Emulators the user may have installed -->
+        <package android:name="org.ppsspp.ppsspp" />
+        <package android:name="org.ppsspp.ppssppgold" />
+        <package android:name="org.ppsspp.ppssppvr" />
+        <package android:name="com.explusalpha.Snes9xPlus" />
+        <package android:name="com.explusalpha.Snes9xEX" />
+        <package android:name="com.github.stenzek.duckstation" />
+        <package android:name="com.github.stenzek.duckstation.earlyaccess" />
+        <package android:name="com.epsxe.ePSXe" />
+        <package android:name="xyz.aethersx2.android" />
+        <package android:name="com.aethersx2" />
+        <package android:name="com.nethersx2.android" />
+        <package android:name="xyz.nethersx2.android" />
+        <package android:name="org.dolphinemu.dolphinemu" />
+        <package android:name="org.dolphinemu.mmjr" />
+        <package android:name="org.mm.jbmm" />
+        <package android:name="com.dsemu.drastic" />
+        <package android:name="me.magnum.melonds" />
+        <package android:name="com.fastemulator.gba" />
+        <package android:name="com.fastemulator.gb" />
+        <package android:name="org.mupen64plusae.v3.fzurita" />
+        <package android:name="org.mupen64plusae.v3.fzurita.pro" />
+        <package android:name="org.citra.citra_emu" />
+        <package android:name="io.github.lime3ds.android" />
+        <package android:name="info.cemu.cemu" />
+        <package android:name="com.retroarch" />
+        <package android:name="com.retroarch.aarch64" />
+        <package android:name="com.retroarch.ra32" />
+        <package android:name="com.flycast.emulator" />
+        <package android:name="com.reicast.emulator" />
+        <package android:name="com.jacksonblaze.nes" />
+    </queries>
+
     <application
         android:name=".FrontendApp"
         android:allowBackup="true"
