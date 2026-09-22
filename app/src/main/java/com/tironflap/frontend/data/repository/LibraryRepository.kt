@@ -75,15 +75,6 @@ class LibraryRepository @Inject constructor(
         gameDao.deleteAll()
     }
 
-    /**
-     * Full scan:
-     * 1. Collect files
-     * 2. Drop junk (EBOOT, DATA.BIN, serial-only names, tiny bins…)
-     * 3. Resolve system (extension + folder heuristics)
-     * 4. Prefer cue over bin, better formats first
-     * 5. Hash with CRC32 and look up public-style hash DB
-     * 6. Scrape remaining metadata
-     */
     suspend fun scanAndScrape(onProgress: (String) -> Unit = {}): ScanResult =
         withContext(Dispatchers.IO) {
             ensureDefaultSystems()
@@ -119,7 +110,7 @@ class LibraryRepository @Inject constructor(
                     var systemId = dir.systemId ?: extToSystem[ext]
 
                     if (systemId == null || systemId.startsWith("unknown_")) {
-                        systemId = DefaultSystems.resolveAmbiguous(ext, name, parentName)
+                        systemId = DefaultSystems.resolveAmbiguous(ext, name, parentName, size)
                     }
                     if (systemId == null || systemId.startsWith("unknown_")) continue
 
